@@ -96,7 +96,11 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        Auth::logout();
+        try {
+            Auth::logout();
+        } catch (\Exception $e) {
+            // Token invalid or expired, just ignore
+        }
 
         return ApiResponse::success(null, 'Logged out');
     }

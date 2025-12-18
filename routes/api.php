@@ -23,6 +23,7 @@ Route::middleware('auth:api')->get('/user', function (Request $request) {
      Route::post('/register', [AuthController::class, 'register']);
      Route::post('/login', [AuthController::class, 'login']);
      Route::post('/refresh', [AuthController::class, 'refresh']);
+     Route::post('/logout', [AuthController::class, 'logout']);
 
      Route::get('/verify-email/{id}/{hash}', [AuthController::class, 'verifyEmail'])
          ->middleware(['signed', 'throttle:6,1'])
@@ -30,7 +31,6 @@ Route::middleware('auth:api')->get('/user', function (Request $request) {
 
      Route::middleware('auth:api')->group(function () {
          Route::get('/me', [AuthController::class, 'me']);
-         Route::post('/logout', [AuthController::class, 'logout']);
          Route::post('/email/verification-notification', [AuthController::class, 'resendVerification'])
              ->middleware('throttle:6,1');
      });
