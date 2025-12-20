@@ -35,6 +35,7 @@ Route::middleware('jwt.auth')->get('/user', function (Request $request) {
 
      Route::middleware('jwt.auth')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
+        Route::post('/change-password', [AuthController::class, 'changePassword']);
         Route::post('/email/verification-notification', [AuthController::class, 'resendVerification'])
             ->middleware('throttle:6,1');
     });

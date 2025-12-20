@@ -133,6 +133,43 @@ class AuthController extends Controller
         }
     }
 
+    public function changePassword(Request $request)
+    {
+        $validated = $request->validate([
+            'current_password' => ['required', 'string'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        try {
+            $user = JWTAuth::user();
+            
+            // Verify current password
+            if (! Hash::check($validated['current_password'], $user->password)) {
+                return ApiResponse::error('Current password is incorrect', 400, [
+                    'current_password' => ['The current password is incorrect.'],
+                ]);
+            }
+
+            // Update password
+            $user->password = Hash::make($validated['password']);
+            $user->save();
+
+            // Logout user after password change (invalidate all tokens)
+            try {
+                JWTAuth::invalidate(JWTAuth::getToken());
+            } catch (\Exception $e) {
+                // Token invalidation failed, but password was changed
+            }
+
+            return ApiResponse::success([
+                'message' => 'Password changed successfully. You have been logged out for security.',
+                'auto_logout' => true
+            ], 'Password changed successfully');
+        } catch (\Exception $e) {
+            return ApiResponse::error('Unable to change password', 401);
+        }
+    }
+
     public function verifyEmail(Request $request, string $id, string $hash)
     {
         $user = User::findOrFail($id);

@@ -95,8 +95,27 @@
             <div style="font-weight:700;margin-bottom:6px">Actions</div>
             <button id="btnMe" disabled>GET /me</button>
             <button id="btnRefresh" disabled>POST /refresh</button>
+            <button id="btnChangePassword" disabled>Change Password</button>
             <button id="btnResend" disabled>POST /email/verification-notification</button>
             <button id="btnOpenVerify" style="display:none" disabled>Open verification link</button>
+        </div>
+
+        <div class="card" style="display:none" id="changePasswordCard">
+            <div style="font-weight:700;margin-bottom:6px">Change Password</div>
+
+            <label>Current Password</label>
+            <input id="current_password" type="password" placeholder="enter current password" />
+
+            <label>New Password</label>
+            <input id="new_password" type="password" placeholder="min 8 characters" />
+
+            <label>Confirm New Password</label>
+            <input id="new_password_confirmation" type="password" placeholder="confirm new password" />
+
+            <div class="row">
+                <button id="btnUpdatePassword">Update Password</button>
+                <button class="secondary" id="btnCancelChange">Cancel</button>
+            </div>
         </div>
 
         <div class="card" style="grid-column:1/-1">
@@ -159,6 +178,7 @@
         document.getElementById('btnMe').disabled = !token;
         document.getElementById('btnLogout').disabled = !token;
         document.getElementById('btnRefresh').disabled = !token;
+        document.getElementById('btnChangePassword').disabled = !token;
         document.getElementById('btnResend').disabled = !token;
 
         const btnOpenVerify = document.getElementById('btnOpenVerify');
@@ -319,6 +339,69 @@
             if (json?.success) {
                 document.getElementById('forgotPasswordCard').style.display = 'none';
                 document.getElementById('forgot_email').value = '';
+            }
+        } catch (e) {
+            setOut(String(e));
+        }
+    });
+
+    // Change Password functionality
+    document.getElementById('btnChangePassword').addEventListener('click', () => {
+        document.getElementById('changePasswordCard').style.display = 'block';
+    });
+
+    document.getElementById('btnCancelChange').addEventListener('click', () => {
+        document.getElementById('changePasswordCard').style.display = 'none';
+        // Clear form
+        document.getElementById('current_password').value = '';
+        document.getElementById('new_password').value = '';
+        document.getElementById('new_password_confirmation').value = '';
+    });
+
+    document.getElementById('btnUpdatePassword').addEventListener('click', async () => {
+        try {
+            const currentPassword = document.getElementById('current_password').value;
+            const newPassword = document.getElementById('new_password').value;
+            const newPasswordConfirmation = document.getElementById('new_password_confirmation').value;
+
+            if (!currentPassword || !newPassword || !newPasswordConfirmation) {
+                setOut('All fields are required');
+                return;
+            }
+
+            if (newPassword !== newPasswordConfirmation) {
+                setOut('New passwords do not match');
+                return;
+            }
+
+            if (newPassword.length < 8) {
+                setOut('New password must be at least 8 characters');
+                return;
+            }
+
+            const { status, json } = await apiFetch('/api/auth/change-password', { 
+                method: 'POST', 
+                body: { 
+                    current_password: currentPassword,
+                    password: newPassword,
+                    password_confirmation: newPasswordConfirmation
+                } 
+            });
+            setOut({ status, ...json });
+
+            if (json?.success) {
+                document.getElementById('changePasswordCard').style.display = 'none';
+                // Clear form
+                document.getElementById('current_password').value = '';
+                document.getElementById('new_password').value = '';
+                document.getElementById('new_password_confirmation').value = '';
+                
+                // Handle auto-logout if password was changed
+                if (json?.data?.auto_logout) {
+                    setToken(null);
+                    setVerificationUrl(null);
+                    setOut('Password changed successfully! You have been logged out for security. Please login again with your new password.');
+                }
             }
         } catch (e) {
             setOut(String(e));
