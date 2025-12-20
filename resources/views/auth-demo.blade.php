@@ -73,6 +73,22 @@
                 <button class="danger" id="btnLogout" disabled>Logout</button>
                 <button class="secondary" id="btnClear">Clear token</button>
             </div>
+
+            <div style="margin-top:12px">
+                <button class="secondary" id="btnForgotPassword">Forgot Password</button>
+            </div>
+        </div>
+
+        <div class="card" style="display:none" id="forgotPasswordCard">
+            <div style="font-weight:700;margin-bottom:6px">Forgot Password</div>
+
+            <label>Email</label>
+            <input id="forgot_email" placeholder="you@example.com" />
+
+            <div class="row">
+                <button id="btnSendReset">Send Reset Link</button>
+                <button class="secondary" id="btnBackToLogin">Back to Login</button>
+            </div>
         </div>
 
         <div class="card">
@@ -172,11 +188,17 @@
         });
 
         let json;
+        const contentType = res.headers.get('content-type');
+        const responseText = await res.text();
+        
         try {
-            json = await res.json();
+            if (contentType && contentType.includes('application/json')) {
+                json = JSON.parse(responseText);
+            } else {
+                throw new Error(responseText || 'Non-JSON response');
+            }
         } catch (e) {
-            const text = await res.text();
-            throw new Error(text || 'Non-JSON response');
+            throw new Error(responseText || 'Invalid JSON response');
         }
 
         return { status: res.status, json };
@@ -269,6 +291,38 @@
         setToken(null);
         setVerificationUrl(null);
         setOut('Cleared token + verification URL');
+    });
+
+    // Forgot Password functionality
+    document.getElementById('btnForgotPassword').addEventListener('click', () => {
+        document.getElementById('forgotPasswordCard').style.display = 'block';
+    });
+
+    document.getElementById('btnBackToLogin').addEventListener('click', () => {
+        document.getElementById('forgotPasswordCard').style.display = 'none';
+    });
+
+    document.getElementById('btnSendReset').addEventListener('click', async () => {
+        try {
+            const email = document.getElementById('forgot_email').value;
+            if (!email) {
+                setOut('Email is required');
+                return;
+            }
+
+            const { status, json } = await apiFetch('/api/auth/forgot-password', { 
+                method: 'POST', 
+                body: { email } 
+            });
+            setOut({ status, ...json });
+
+            if (json?.success) {
+                document.getElementById('forgotPasswordCard').style.display = 'none';
+                document.getElementById('forgot_email').value = '';
+            }
+        } catch (e) {
+            setOut(String(e));
+        }
     });
 
     syncButtons();

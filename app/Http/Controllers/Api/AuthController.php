@@ -13,6 +13,9 @@ use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 use App\Mail\WelcomeMail;
+use Tymon\JWTAuth\Facades\JWTAuth;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
@@ -46,7 +49,7 @@ class AuthController extends Controller
             );
         }
 
-        $token = Auth::login($user);
+        $token = JWTAuth::fromUser($user);
 
         return ApiResponse::success([
             'user' => $user,
@@ -69,20 +72,23 @@ class AuthController extends Controller
             'password' => $validated['password'],
         ];
 
-        if (! $token = Auth::attempt($credentials)) {
+        if (! $token = JWTAuth::attempt($credentials)) {
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials are incorrect.'],
             ]);
         }
 
-        if (! Auth::user()->hasVerifiedEmail()) {
+        // Get user after successful authentication
+        $user = JWTAuth::user();
+        
+        if (! $user->hasVerifiedEmail()) {
             return ApiResponse::error('Email address is not verified.', 403, [
                 'email' => ['Email address is not verified.'],
             ]);
         }
 
         return ApiResponse::success([
-            'user' => Auth::user(),
+            'user' => $user,
             'token' => $token,
             'token_type' => 'Bearer',
             'expires_in' => auth('api')->factory()->getTTL() * 60,
@@ -91,13 +97,18 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        return ApiResponse::success(Auth::user(), 'OK');
+        try {
+            $user = JWTAuth::user();
+            return ApiResponse::success($user, 'OK');
+        } catch (\Exception $e) {
+            return ApiResponse::error('Invalid token', 401);
+        }
     }
 
     public function logout(Request $request)
     {
         try {
-            Auth::logout();
+            JWTAuth::logout();
         } catch (\Exception $e) {
             // Token invalid or expired, just ignore
         }
@@ -107,12 +118,19 @@ class AuthController extends Controller
 
     public function refresh(Request $request)
     {
-        return ApiResponse::success([
-            'user' => Auth::user(),
-            'token' => Auth::refresh(),
-            'token_type' => 'Bearer',
-            'expires_in' => auth('api')->factory()->getTTL() * 60,
-        ], 'Token refreshed');
+        try {
+            $user = JWTAuth::user();
+            $token = JWTAuth::refresh();
+            
+            return ApiResponse::success([
+                'user' => $user,
+                'token' => $token,
+                'token_type' => 'Bearer',
+                'expires_in' => auth('api')->factory()->getTTL() * 60,
+            ], 'Token refreshed');
+        } catch (\Exception $e) {
+            return ApiResponse::error('Unable to refresh token', 401);
+        }
     }
 
     public function verifyEmail(Request $request, string $id, string $hash)
@@ -134,30 +152,141 @@ class AuthController extends Controller
         return ApiResponse::success(null, 'Email verified');
     }
 
+    public function forgotPassword(Request $request)
+    {
+        $validated = $request->validate([
+            'email' => ['required', 'string', 'email'],
+        ]);
+
+        // Find user by email
+        $user = User::where('email', $validated['email'])->first();
+        
+        if (! $user) {
+            // Don't reveal if user exists or not for security
+            return ApiResponse::success([
+                'message' => 'Password reset link sent to your email',
+                'email' => $validated['email']
+            ], 'Password reset link sent to your email');
+        }
+
+        // Generate custom reset token
+        $token = Str::random(60);
+        $hashedToken = Hash::make($token);
+        
+        // Store token in password_resets table
+        \DB::table('password_resets')->insert([
+            'email' => $validated['email'],
+            'token' => $hashedToken,
+            'created_at' => now()
+        ]);
+
+        // Generate reset URL
+        $resetUrl = URL::route('password.reset', ['token' => $token, 'email' => $validated['email']]);
+
+        // Try to send email (will be logged if mail driver is 'log')
+        try {
+            Mail::raw("Hello {$user->name},\n\nClick here to reset your password: {$resetUrl}\n\nThis link will expire in 24 hours.", function ($message) use ($user) {
+                $message->to($user->email)
+                    ->subject('Password Reset Request');
+            });
+        } catch (\Exception $e) {
+            // Log error but continue (debug mode will provide URL anyway)
+            \Log::error('Failed to send password reset email: ' . $e->getMessage());
+        }
+
+        $response = [
+            'message' => 'Password reset link sent to your email',
+            'email' => $validated['email']
+        ];
+        
+        // Add debug info in development
+        if (config('app.debug')) {
+            $response['debug_reset_url'] = $resetUrl;
+            $response['debug_token'] = $token;
+            $response['mail_sent'] = 'Check Laravel logs for email content';
+        }
+        
+        return ApiResponse::success($response, 'Password reset link sent to your email');
+    }
+
+    public function resetPassword(Request $request)
+    {
+        $validated = $request->validate([
+            'token' => ['required'],
+            'email' => ['required', 'string', 'email'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        // Find user by email
+        $user = User::where('email', $validated['email'])->first();
+        
+        if (! $user) {
+            return ApiResponse::error('User not found', 404);
+        }
+
+        // Get all reset tokens for this email
+        $resetTokens = \DB::table('password_resets')
+            ->where('email', $validated['email'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        // Verify the reset token
+        $validToken = null;
+        foreach ($resetTokens as $resetToken) {
+            if (Hash::check($validated['token'], $resetToken->token)) {
+                // Check if token is not expired (24 hours)
+                $createdAt = \Carbon\Carbon::parse($resetToken->created_at);
+                if ($createdAt->diffInHours(now()) < 24) {
+                    $validToken = $resetToken;
+                    break;
+                }
+            }
+        }
+
+        if (! $validToken) {
+            return ApiResponse::error('Invalid or expired reset token', 400);
+        }
+
+        // Reset the password
+        $user->password = Hash::make($validated['password']);
+        $user->save();
+
+        // Delete all reset tokens for this email
+        \DB::table('password_resets')
+            ->where('email', $validated['email'])
+            ->delete();
+
+        return ApiResponse::success(null, 'Password reset successfully');
+    }
+
     public function resendVerification(Request $request)
     {
-        $user = Auth::user();
+        try {
+            $user = JWTAuth::user();
 
-        if ($user->hasVerifiedEmail()) {
-            return ApiResponse::success(null, 'Email already verified');
+            if ($user->hasVerifiedEmail()) {
+                return ApiResponse::success(null, 'Email already verified');
+            }
+
+            $user->sendEmailVerificationNotification();
+
+            $verificationUrl = null;
+            if (config('app.debug')) {
+                $verificationUrl = URL::temporarySignedRoute(
+                    'verification.verify',
+                    now()->addMinutes((int) config('auth.verification.expire', 60)),
+                    [
+                        'id' => $user->getKey(),
+                        'hash' => sha1($user->getEmailForVerification()),
+                    ]
+                );
+            }
+
+            return ApiResponse::success([
+                'verification_url' => $verificationUrl,
+            ], 'Verification link sent');
+        } catch (\Exception $e) {
+            return ApiResponse::error('Invalid token', 401);
         }
-
-        $user->sendEmailVerificationNotification();
-
-        $verificationUrl = null;
-        if (config('app.debug')) {
-            $verificationUrl = URL::temporarySignedRoute(
-                'verification.verify',
-                now()->addMinutes((int) config('auth.verification.expire', 60)),
-                [
-                    'id' => $user->getKey(),
-                    'hash' => sha1($user->getEmailForVerification()),
-                ]
-            );
-        }
-
-        return ApiResponse::success([
-            'verification_url' => $verificationUrl,
-        ], 'Verification link sent');
     }
 }
