@@ -30,6 +30,7 @@ class AuthController extends Controller
         $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
+            'username' => $validated['name'], // Use name as username
             'password' => Hash::make($validated['password']),
         ]);
 
@@ -63,18 +64,21 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $validated = $request->validate([
-            'email' => ['required', 'string', 'email'],
+            'login' => ['required', 'string'],
             'password' => ['required', 'string'],
         ]);
 
+        // Check if login is email or username
+        $loginField = filter_var($validated['login'], FILTER_VALIDATE_EMAIL) ? 'email' : 'username';
+        
         $credentials = [
-            'email' => $validated['email'],
+            $loginField => $validated['login'],
             'password' => $validated['password'],
         ];
 
         if (! $token = JWTAuth::attempt($credentials)) {
             throw ValidationException::withMessages([
-                'email' => ['The provided credentials are incorrect.'],
+                'login' => ['The provided credentials are incorrect.'],
             ]);
         }
 
@@ -167,6 +171,115 @@ class AuthController extends Controller
             ], 'Password changed successfully');
         } catch (\Exception $e) {
             return ApiResponse::error('Unable to change password', 401);
+        }
+    }
+
+    public function adminDashboard()
+    {
+        try {
+            $user = JWTAuth::user();
+            
+            $stats = [
+                'total_users' => User::count(),
+                'verified_users' => User::whereNotNull('email_verified_at')->count(),
+                'admin_users' => User::where('role', 'admin')->count(),
+                'recent_users' => User::orderBy('created_at', 'desc')->take(5)->get(['id', 'name', 'email', 'role', 'created_at']),
+            ];
+            
+            return ApiResponse::success([
+                'admin_user' => $user,
+                'stats' => $stats
+            ], 'Admin dashboard data');
+        } catch (\Exception $e) {
+            return ApiResponse::error('Unable to fetch admin data', 401);
+        }
+    }
+
+    public function adminUsers()
+    {
+        try {
+            $users = User::select('id', 'name', 'email', 'role', 'email_verified_at', 'created_at')
+                ->orderBy('created_at', 'desc')
+                ->get();
+            
+            return ApiResponse::success([
+                'users' => $users
+            ], 'All users data');
+        } catch (\Exception $e) {
+            return ApiResponse::error('Unable to fetch users', 401);
+        }
+    }
+
+    public function adminCreateUser(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
+            'password' => ['required', 'string', 'min:8'],
+            'role' => ['required', 'string', 'in:user,admin'],
+        ]);
+
+        try {
+            $user = User::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => Hash::make($validated['password']),
+                'role' => $validated['role'],
+                'email_verified_at' => now(), // Auto-verify admin-created users
+            ]);
+
+            return ApiResponse::success([
+                'user' => $user
+            ], 'User created successfully');
+        } catch (\Exception $e) {
+            return ApiResponse::error('Unable to create user', 500);
+        }
+    }
+
+    public function adminUpdateUser(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'name' => ['sometimes', 'string', 'max:255'],
+            'email' => ['sometimes', 'string', 'email', 'max:255', 'unique:users,email,' . $id],
+            'role' => ['sometimes', 'string', 'in:user,admin'],
+            'email_verified_at' => ['sometimes', 'nullable', 'date'],
+        ]);
+
+        try {
+            $user = User::findOrFail($id);
+            
+            // Prevent admin from changing their own role to user (security)
+            $currentUser = JWTAuth::user();
+            if ($currentUser->id == $user->id && isset($validated['role']) && $validated['role'] !== 'admin') {
+                return ApiResponse::error('You cannot change your own admin role', 403);
+            }
+
+            $user->update($validated);
+
+            return ApiResponse::success([
+                'user' => $user
+            ], 'User updated successfully');
+        } catch (\Exception $e) {
+            return ApiResponse::error('Unable to update user', 500);
+        }
+    }
+
+    public function adminDeleteUser(Request $request, $id)
+    {
+        try {
+            $user = User::findOrFail($id);
+            
+            // Prevent admin from deleting themselves
+            $currentUser = JWTAuth::user();
+            if ($currentUser->id == $user->id) {
+                return ApiResponse::error('You cannot delete your own account', 403);
+            }
+
+            $user->delete();
+
+            return ApiResponse::success(null, 'User deleted successfully');
+        } catch (\Exception $e) {
+            return ApiResponse::error('Unable to delete user', 500);
         }
     }
 

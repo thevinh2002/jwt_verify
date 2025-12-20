@@ -38,5 +38,14 @@ Route::middleware('jwt.auth')->get('/user', function (Request $request) {
         Route::post('/change-password', [AuthController::class, 'changePassword']);
         Route::post('/email/verification-notification', [AuthController::class, 'resendVerification'])
             ->middleware('throttle:6,1');
+        
+        // Admin only routes
+        Route::middleware('admin')->group(function () {
+            Route::get('/admin/dashboard', [AuthController::class, 'adminDashboard']);
+            Route::get('/admin/users', [AuthController::class, 'adminUsers']);
+            Route::post('/admin/users', [AuthController::class, 'adminCreateUser']);
+            Route::put('/admin/users/{id}', [AuthController::class, 'adminUpdateUser']);
+            Route::delete('/admin/users/{id}', [AuthController::class, 'adminDeleteUser']);
+        });
     });
  });

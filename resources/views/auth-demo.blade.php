@@ -59,8 +59,8 @@
         <div class="card">
             <div style="font-weight:700;margin-bottom:6px">Login</div>
 
-            <label>Email</label>
-            <input id="login_email" placeholder="you@example.com" />
+            <label>Login (Email or Username)</label>
+            <input id="login_login" placeholder="admin or user@example.com" />
 
             <label>Password</label>
             <input id="login_password" type="password" placeholder="your password" />
@@ -98,6 +98,10 @@
             <button id="btnChangePassword" disabled>Change Password</button>
             <button id="btnResend" disabled>POST /email/verification-notification</button>
             <button id="btnOpenVerify" style="display:none" disabled>Open verification link</button>
+            <button id="btnAdminDashboard" style="display:none" disabled>Admin Dashboard</button>
+            <button id="btnAdminUsers" style="display:none" disabled>Admin Users</button>
+            <button id="btnAdminCreateUser" style="display:none" disabled>Create User</button>
+            <button id="btnUserManagement" style="display:none" disabled>User Management</button>
         </div>
 
         <div class="card" style="display:none" id="changePasswordCard">
@@ -115,6 +119,72 @@
             <div class="row">
                 <button id="btnUpdatePassword">Update Password</button>
                 <button class="secondary" id="btnCancelChange">Cancel</button>
+            </div>
+        </div>
+
+        <div class="card" style="display:none" id="createUserCard">
+            <div style="font-weight:700;margin-bottom:6px">Create New User</div>
+
+            <label>Name</label>
+            <input id="create_name" placeholder="User name" />
+
+            <label>Login (Email or Username)</label>
+            <input id="login" placeholder="admin or user@example.com" />
+
+            <label>Password</label>
+            <input id="create_password" type="password" placeholder="min 8 characters" />
+
+            <label>Role</label>
+            <select id="create_role">
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+            </select>
+
+            <div class="row">
+                <button id="btnCreateUser">Create User</button>
+                <button class="secondary" id="btnCancelCreate">Cancel</button>
+            </div>
+        </div>
+
+        <div class="card" style="display:none" id="updateUserCard">
+            <div style="font-weight:700;margin-bottom:6px">Update User</div>
+
+            <input type="hidden" id="update_user_id" />
+
+            <label>Name</label>
+            <input id="update_name" placeholder="User name" />
+
+            <label>Email</label>
+            <input id="update_email" placeholder="user@example.com" />
+
+            <label>Role</label>
+            <select id="update_role">
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+            </select>
+
+            <label>Email Verified</label>
+            <select id="update_email_verified">
+                <option value="1">Yes</option>
+                <option value="0">No</option>
+            </select>
+
+            <div class="row">
+                <button id="btnUpdateUser">Update User</button>
+                <button class="secondary" id="btnCancelUpdate">Cancel</button>
+            </div>
+        </div>
+
+        <div class="card" style="display:none;grid-column:1/-1" id="userManagementCard">
+            <div style="font-weight:700;margin-bottom:6px">User Management</div>
+            
+            <div style="margin-bottom:12px">
+                <button id="btnLoadUsers">Load Users</button>
+                <button class="secondary" id="btnCloseUserManagement">Close</button>
+            </div>
+            
+            <div id="usersList" style="max-height:400px;overflow-y:auto">
+                <div style="text-align:center;color:#666;padding:20px">Click "Load Users" to see all users</div>
             </div>
         </div>
 
@@ -189,6 +259,12 @@
             btnOpenVerify.style.display = 'none';
             btnOpenVerify.disabled = true;
         }
+
+        // Hide admin buttons by default, show only if user is admin
+        document.getElementById('btnAdminDashboard').style.display = 'none';
+        document.getElementById('btnAdminUsers').style.display = 'none';
+        document.getElementById('btnAdminCreateUser').style.display = 'none';
+        document.getElementById('btnUserManagement').style.display = 'none';
     }
 
     async function apiFetch(path, options = {}) {
@@ -247,14 +323,15 @@
     document.getElementById('btnLogin').addEventListener('click', async () => {
         try {
             const body = {
-                email: document.getElementById('login_email').value,
+                login: document.getElementById('login_login').value,
                 password: document.getElementById('login_password').value,
             };
             const { status, json } = await apiFetch('/api/auth/login', { method: 'POST', body });
             setOut({ status, ...json });
 
-            const token = json?.data?.token;
-            if (token) setToken(token);
+            if (json?.data?.token) {
+                setToken(json.data.token);
+            }
         } catch (e) {
             setOut(String(e));
         }
@@ -264,6 +341,18 @@
         try {
             const { status, json } = await apiFetch('/api/auth/me');
             setOut({ status, ...json });
+
+            // Check if user is admin and show admin buttons
+            if (json?.data?.role === 'admin') {
+                document.getElementById('btnAdminDashboard').style.display = 'inline-block';
+                document.getElementById('btnAdminDashboard').disabled = false;
+                document.getElementById('btnAdminUsers').style.display = 'inline-block';
+                document.getElementById('btnAdminUsers').disabled = false;
+                document.getElementById('btnAdminCreateUser').style.display = 'inline-block';
+                document.getElementById('btnAdminCreateUser').disabled = false;
+                document.getElementById('btnUserManagement').style.display = 'inline-block';
+                document.getElementById('btnUserManagement').disabled = false;
+            }
         } catch (e) {
             setOut(String(e));
         }
@@ -407,6 +496,236 @@
             setOut(String(e));
         }
     });
+
+    // Admin functionality
+    document.getElementById('btnAdminDashboard').addEventListener('click', async () => {
+        try {
+            const { status, json } = await apiFetch('/api/auth/admin/dashboard');
+            setOut({ status, ...json });
+        } catch (e) {
+            setOut(String(e));
+        }
+    });
+
+    document.getElementById('btnAdminUsers').addEventListener('click', async () => {
+        try {
+            const { status, json } = await apiFetch('/api/auth/admin/users');
+            setOut({ status, ...json });
+        } catch (e) {
+            setOut(String(e));
+        }
+    });
+
+    // Create User functionality
+    document.getElementById('btnAdminCreateUser').addEventListener('click', () => {
+        document.getElementById('createUserCard').style.display = 'block';
+    });
+
+    document.getElementById('btnCancelCreate').addEventListener('click', () => {
+        document.getElementById('createUserCard').style.display = 'none';
+        // Clear form
+        document.getElementById('create_name').value = '';
+        document.getElementById('create_email').value = '';
+        document.getElementById('create_password').value = '';
+        document.getElementById('create_role').value = 'user';
+    });
+
+    document.getElementById('btnCreateUser').addEventListener('click', async () => {
+        try {
+            const name = document.getElementById('create_name').value;
+            const email = document.getElementById('create_email').value;
+            const password = document.getElementById('create_password').value;
+            const role = document.getElementById('create_role').value;
+
+            if (!name || !email || !password) {
+                setOut('Name, email, and password are required');
+                return;
+            }
+
+            if (password.length < 8) {
+                setOut('Password must be at least 8 characters');
+                return;
+            }
+
+            const { status, json } = await apiFetch('/api/auth/admin/users', { 
+                method: 'POST', 
+                body: { 
+                    name,
+                    email,
+                    password,
+                    role
+                } 
+            });
+            setOut({ status, ...json });
+
+            if (json?.success) {
+                document.getElementById('createUserCard').style.display = 'none';
+                // Clear form
+                document.getElementById('create_name').value = '';
+                document.getElementById('create_email').value = '';
+                document.getElementById('create_password').value = '';
+                document.getElementById('create_role').value = 'user';
+            }
+        } catch (e) {
+            setOut(String(e));
+        }
+    });
+
+    // Update User functionality
+    document.getElementById('btnCancelUpdate').addEventListener('click', () => {
+        document.getElementById('updateUserCard').style.display = 'none';
+        // Clear form
+        document.getElementById('update_user_id').value = '';
+        document.getElementById('update_name').value = '';
+        document.getElementById('update_email').value = '';
+        document.getElementById('update_role').value = 'user';
+        document.getElementById('update_email_verified').value = '1';
+    });
+
+    document.getElementById('btnUpdateUser').addEventListener('click', async () => {
+        try {
+            const userId = document.getElementById('update_user_id').value;
+            const name = document.getElementById('update_name').value;
+            const email = document.getElementById('update_email').value;
+            const role = document.getElementById('update_role').value;
+            const emailVerified = document.getElementById('update_email_verified').value;
+
+            if (!userId || !name || !email) {
+                setOut('User ID, name, and email are required');
+                return;
+            }
+
+            const updateData = {
+                name,
+                email,
+                role
+            };
+
+            // Only include email_verified_at if it's set to "No"
+            if (emailVerified === '0') {
+                updateData.email_verified_at = null;
+            } else {
+                updateData.email_verified_at = new Date().toISOString();
+            }
+
+            const { status, json } = await apiFetch(`/api/auth/admin/users/${userId}`, { 
+                method: 'PUT', 
+                body: updateData 
+            });
+            setOut({ status, ...json });
+
+            if (json?.success) {
+                document.getElementById('updateUserCard').style.display = 'none';
+                // Clear form
+                document.getElementById('update_user_id').value = '';
+                document.getElementById('update_name').value = '';
+                document.getElementById('update_email').value = '';
+                document.getElementById('update_role').value = 'user';
+                document.getElementById('update_email_verified').value = '1';
+            }
+        } catch (e) {
+            setOut(String(e));
+        }
+    });
+
+    // Helper function to show update form with user data
+    function showUpdateForm(user) {
+        document.getElementById('update_user_id').value = user.id;
+        document.getElementById('update_name').value = user.name || '';
+        document.getElementById('update_email').value = user.email || '';
+        document.getElementById('update_role').value = user.role || 'user';
+        document.getElementById('update_email_verified').value = user.email_verified_at ? '1' : '0';
+        document.getElementById('updateUserCard').style.display = 'block';
+    }
+
+    // Helper function to delete user
+    async function deleteUser(userId) {
+        if (!confirm('Are you sure you want to delete this user?')) {
+            return;
+        }
+
+        try {
+            const { status, json } = await apiFetch(`/api/auth/admin/users/${userId}`, { 
+                method: 'DELETE' 
+            });
+            setOut({ status, ...json });
+        } catch (e) {
+            setOut(String(e));
+        }
+    }
+
+    // User Management functionality
+    document.getElementById('btnUserManagement').addEventListener('click', () => {
+        document.getElementById('userManagementCard').style.display = 'block';
+    });
+
+    document.getElementById('btnCloseUserManagement').addEventListener('click', () => {
+        document.getElementById('userManagementCard').style.display = 'none';
+    });
+
+    document.getElementById('btnLoadUsers').addEventListener('click', async () => {
+        try {
+            const { status, json } = await apiFetch('/api/auth/admin/users');
+            
+            if (json?.success && json?.data?.users) {
+                displayUsersList(json.data.users);
+            } else {
+                document.getElementById('usersList').innerHTML = '<div style="text-align:center;color:#e74c3c;padding:20px">Failed to load users</div>';
+            }
+        } catch (e) {
+            setOut(String(e));
+        }
+    });
+
+    function displayUsersList(users) {
+        const usersListDiv = document.getElementById('usersList');
+        
+        if (users.length === 0) {
+            usersListDiv.innerHTML = '<div style="text-align:center;color:#666;padding:20px">No users found</div>';
+            return;
+        }
+
+        let html = '<div style="display:grid;gap:8px">';
+        
+        users.forEach(user => {
+            const verifiedBadge = user.email_verified_at ? 
+                '<span style="background:#27ae60;color:white;padding:2px 8px;border-radius:4px;font-size:11px">Verified</span>' : 
+                '<span style="background:#e74c3c;color:white;padding:2px 8px;border-radius:4px;font-size:11px">Not Verified</span>';
+            
+            const roleBadge = user.role === 'admin' ? 
+                '<span style="background:#8e44ad;color:white;padding:2px 8px;border-radius:4px;font-size:11px">Admin</span>' : 
+                '<span style="background:#3498db;color:white;padding:2px 8px;border-radius:4px;font-size:11px">User</span>';
+            
+            html += `
+                <div style="border:1px solid #ddd;padding:12px;border-radius:6px;background:#f9f9f9">
+                    <div style="display:flex;justify-content:space-between;align-items:start;gap:12px">
+                        <div style="flex:1">
+                            <div style="font-weight:600;margin-bottom:4px">${user.name}</div>
+                            <div style="color:#666;font-size:13px;margin-bottom:2px">Email: ${user.email}</div>
+                            <div style="color:#666;font-size:13px;margin-bottom:4px">ID: ${user.id}</div>
+                            <div style="display:flex;gap:6px;align-items:center">
+                                ${roleBadge}
+                                ${verifiedBadge}
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:6px">
+                            <button onclick="showUpdateForm(${JSON.stringify(user).replace(/"/g, '&quot;')})" 
+                                    style="background:#3498db;color:white;border:none;padding:4px 8px;border-radius:3px;font-size:12px;cursor:pointer">
+                                Edit
+                            </button>
+                            <button onclick="deleteUser(${user.id})" 
+                                    style="background:#e74c3c;color:white;border:none;padding:4px 8px;border-radius:3px;font-size:12px;cursor:pointer">
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        usersListDiv.innerHTML = html;
+    }
 
     syncButtons();
 </script>
